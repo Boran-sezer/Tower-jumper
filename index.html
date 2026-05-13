@@ -1,0 +1,356 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Tower Jumper</title>
+  <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: #0d0d1a;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      font-family: 'Press Start 2P', monospace;
+    }
+    #game-wrap {
+      background: #1a1a2e;
+      border-radius: 12px;
+      padding: 16px;
+      user-select: none;
+      overflow: hidden;
+    }
+    #hud {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 12px;
+      padding: 0 4px;
+    }
+    #score-lbl { color: #f0e68c; font-size: 9px; }
+    #best-lbl  { color: #7ec8e3; font-size: 9px; }
+    #life-lbl  { color: #ff6b6b; font-size: 9px; }
+    #canvas-wrap { position: relative; display: flex; justify-content: center; }
+    canvas {
+      display: block;
+      image-rendering: pixelated;
+      border: 2px solid #333;
+      border-radius: 4px;
+    }
+    #overlay {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 14px;
+      background: rgba(10,10,30,0.88);
+      border-radius: 4px;
+    }
+    #overlay h1 { color: #f0e68c; font-size: 13px; text-align: center; line-height: 1.8; }
+    #overlay p  { color: #aaa; font-size: 7px; text-align: center; line-height: 2; }
+    #overlay button {
+      background: #f0e68c;
+      color: #1a1a2e;
+      border: none;
+      padding: 10px 22px;
+      font-family: 'Press Start 2P', monospace;
+      font-size: 9px;
+      cursor: pointer;
+      border-radius: 2px;
+      transition: transform .1s;
+    }
+    #overlay button:hover { transform: scale(1.05); }
+    #tap-hint {
+      color: #f0e68c;
+      font-size: 7px;
+      text-align: center;
+      margin-top: 8px;
+      padding: 0 4px;
+      opacity: .7;
+      line-height: 2;
+    }
+  </style>
+</head>
+<body>
+<div id="game-wrap">
+  <div id="hud">
+    <span id="score-lbl">SCORE: 0</span>
+    <span id="best-lbl">MEILLEUR: 0</span>
+    <span id="life-lbl">❤❤❤</span>
+  </div>
+  <div id="canvas-wrap">
+    <canvas id="c" width="320" height="440"></canvas>
+    <div id="overlay">
+      <h1>⬛ TOWER<br>JUMPER ⬛</h1>
+      <p>Sautez au bon moment<br>pour empiler des blocs !<br>Ratez et vous perdez une vie.</p>
+      <button id="startBtn">► JOUER</button>
+    </div>
+  </div>
+  <div id="tap-hint">ESPACE / CLIC / TAP pour sauter</div>
+</div>
+
+<script>
+const canvas = document.getElementById('c');
+const ctx    = canvas.getContext('2d');
+const W = 320, H = 440;
+const BW = 48, BH = 16;
+
+const COLORS = [
+  '#e74c3c','#e67e22','#f1c40f','#2ecc71',
+  '#1abc9c','#3498db','#9b59b6','#e91e63',
+  '#00bcd4','#8bc34a'
+];
+const DARK = {
+  '#e74c3c':'#922b21','#e67e22':'#935116','#f1c40f':'#9a7d0a',
+  '#2ecc71':'#1a8a4a','#1abc9c':'#148f77','#3498db':'#1a5276',
+  '#9b59b6':'#6c3483','#e91e63':'#880e4f','#00bcd4':'#00838f',
+  '#8bc34a':'#558b2f'
+};
+const STAR_COUNT = 40;
+
+let state = 'idle', score = 0, best = 0, lives = 3;
+let tower = [], fallingBlock = null, player = null, stars = [];
+let camY = 0, targetCamY = 0;
+let jumpQueued = false;
+
+function rand(a, b)    { return Math.random() * (b - a) + a; }
+function randInt(a, b) { return Math.floor(rand(a, b + 1)); }
+
+function initStars() {
+  stars = [];
+  for (let i = 0; i < STAR_COUNT; i++)
+    stars.push({ x: rand(0,W), y: rand(0,H*4), r: rand(0.5,1.5), blink: rand(0,1) });
+}
+
+function makeFallingBlock(y) {
+  const col = COLORS[randInt(0, COLORS.length - 1)];
+  const spd = 2.5 + score * 0.08;
+  return { x: -BW, y, w: BW, h: BH, col, spd, dir: 1 };
+}
+
+function startGame() {
+  score = 0; lives = 3; camY = 0; targetCamY = 0; jumpQueued = false;
+  tower = [];
+  const baseY = H - BH - 20;
+  for (let i = 0; i < 3; i++)
+    tower.push({ x: W/2 - BW/2, y: baseY - i*BH, w: BW, h: BH, col: COLORS[0] });
+
+  const topBlock = tower[tower.length - 1];
+  player = {
+    x: topBlock.x + BW/2 - 6,
+    y: topBlock.y - 20,
+    w: 12, h: 20,
+    vy: 0,
+    onGround: true,
+    col: '#f0e68c',
+    jumpCooldown: 0
+  };
+  fallingBlock = makeFallingBlock(topBlock.y);
+  updateHUD();
+  state = 'playing';
+  document.getElementById('overlay').style.display = 'none';
+}
+
+function updateHUD() {
+  document.getElementById('score-lbl').textContent = 'SCORE: ' + score;
+  document.getElementById('best-lbl').textContent  = 'MEILLEUR: ' + best;
+  document.getElementById('life-lbl').textContent  =
+    '❤'.repeat(lives) + '♡'.repeat(Math.max(0, 3 - lives));
+}
+
+function doJump() {
+  if (state !== 'playing') return;
+  if (player.onGround && player.jumpCooldown <= 0) {
+    player.vy = -10;
+    player.onGround = false;
+    jumpQueued = false;
+  } else {
+    jumpQueued = true;
+  }
+}
+
+function checkLand() {
+  if (player.onGround) return;
+  const fb = fallingBlock;
+  if (!fb) return;
+  const py  = player.y + player.h;
+  const prevPy = py - player.vy;
+
+  if (prevPy <= fb.y && py >= fb.y) {
+    const cx = player.x + player.w / 2;
+    if (cx >= fb.x && cx <= fb.x + fb.w) { landOnBlock(); return; }
+  }
+
+  const topBlock = tower[tower.length - 1];
+  if (topBlock) {
+    const tTop   = topBlock.y;
+    const prevPy2 = py - player.vy;
+    if (prevPy2 <= tTop && py >= tTop) {
+      const cx = player.x + player.w / 2;
+      if (cx >= topBlock.x && cx <= topBlock.x + topBlock.w) {
+        player.y = tTop - player.h;
+        player.vy = 0;
+        player.onGround = true;
+        player.jumpCooldown = 8;
+        return;
+      }
+    }
+  }
+}
+
+function landOnBlock() {
+  const fb       = fallingBlock;
+  const topBlock = tower[tower.length - 1];
+  const newBlock = { x: fb.x, y: topBlock.y - BH, w: fb.w, h: BH, col: fb.col };
+  tower.push(newBlock);
+
+  player.y = newBlock.y - player.h;
+  player.vy = 0;
+  player.onGround = true;
+  player.jumpCooldown = 8;
+
+  score++;
+  if (score > best) best = score;
+  fallingBlock = makeFallingBlock(newBlock.y);
+  targetCamY = Math.max(0, (tower.length - 8) * BH);
+  updateHUD();
+}
+
+function missBlock() {
+  lives--;
+  updateHUD();
+  if (lives <= 0) {
+    state = 'gameover';
+    showOverlay('GAME OVER', 'Score : ' + score, '↺ REJOUER');
+    return;
+  }
+  const topBlock = tower[tower.length - 1];
+  player.x = topBlock.x + BW/2 - 6;
+  player.y = topBlock.y - player.h;
+  player.vy = 0;
+  player.onGround = true;
+  fallingBlock = makeFallingBlock(topBlock.y);
+}
+
+function showOverlay(title, sub, btnLabel) {
+  const ov = document.getElementById('overlay');
+  ov.style.display = 'flex';
+  ov.innerHTML = `<h1>${title}</h1><p>${sub}</p><button id="startBtn">${btnLabel}</button>`;
+  document.getElementById('startBtn').addEventListener('click', startGame);
+}
+
+/* ── Rendu ── */
+
+function drawPixelChar(x, y, col) {
+  ctx.fillStyle = col;
+  ctx.fillRect(x+2, y, 8, 6);
+  ctx.fillStyle = '#fde3a7';
+  ctx.fillRect(x+3, y-5, 6, 5);
+  ctx.fillStyle = '#333';
+  ctx.fillRect(x+4, y-4, 1, 1);
+  ctx.fillRect(x+7, y-4, 1, 1);
+  ctx.fillStyle = col;
+  ctx.fillRect(x, y+6, 12, 8);
+  ctx.fillRect(x-2, y+2, 3, 6);
+  ctx.fillRect(x+11, y+2, 3, 6);
+  ctx.fillStyle = '#e8c99a';
+  ctx.fillRect(x+2, y+14, 3, 4);
+  ctx.fillRect(x+7, y+14, 3, 4);
+}
+
+function drawBlock(x, y, w, h, col) {
+  ctx.fillStyle = col;
+  ctx.fillRect(x, y, w, h);
+  ctx.fillStyle = DARK[col] || '#333';
+  ctx.fillRect(x, y+h-3, w, 3);
+  ctx.fillStyle = 'rgba(255,255,255,0.3)';
+  ctx.fillRect(x, y, w, 3);
+  ctx.fillRect(x, y, 3, h);
+}
+
+function drawFallingBlock(fb) {
+  drawBlock(fb.x, fb.y, fb.w, fb.h, fb.col);
+  ctx.fillStyle = 'rgba(255,255,255,0.15)';
+  for (let i = 0; i < fb.w; i += 6)
+    ctx.fillRect(fb.x+i, fb.y, 2, fb.h);
+}
+
+/* ── Boucle ── */
+
+function update() {
+  if (state !== 'playing') return;
+
+  const fb = fallingBlock;
+  if (fb) {
+    fb.x += fb.spd * fb.dir;
+    if (fb.x + fb.w >= W) { fb.dir = -1; fb.x = W - fb.w; }
+    if (fb.x <= 0)         { fb.dir =  1; fb.x = 0; }
+  }
+
+  if (!player.onGround) {
+    player.vy += 0.55;
+    player.y  += player.vy;
+    checkLand();
+    if (player.y + player.h > H + 100) missBlock();
+  } else {
+    player.jumpCooldown--;
+    if (jumpQueued && player.jumpCooldown <= 0) {
+      player.vy = -10;
+      player.onGround = false;
+      jumpQueued = false;
+    }
+  }
+
+  camY += (targetCamY - camY) * 0.08;
+}
+
+function draw() {
+  ctx.clearRect(0, 0, W, H);
+  ctx.fillStyle = '#0d0d1a';
+  ctx.fillRect(0, 0, W, H);
+
+  const scroll = Math.round(camY);
+
+  stars.forEach(s => {
+    s.blink += 0.02;
+    const a = 0.4 + 0.3 * Math.sin(s.blink);
+    ctx.fillStyle = `rgba(255,255,255,${a})`;
+    ctx.fillRect(s.x, s.y + scroll * 0.3, s.r*2, s.r*2);
+  });
+
+  ctx.save();
+  ctx.translate(0, -scroll);
+  tower.forEach(b => drawBlock(b.x, b.y, b.w, b.h, b.col));
+  if (fallingBlock) drawFallingBlock(fallingBlock);
+  if (player) drawPixelChar(player.x, player.y, player.col);
+  ctx.restore();
+}
+
+function loop() {
+  update();
+  draw();
+  requestAnimationFrame(loop);
+}
+
+/* ── Init ── */
+initStars();
+loop();
+
+document.getElementById('startBtn').addEventListener('click', startGame);
+
+window.addEventListener('keydown', e => {
+  if (e.code === 'Space' || e.code === 'ArrowUp') { e.preventDefault(); doJump(); }
+});
+canvas.addEventListener('pointerdown', e => { e.preventDefault(); doJump(); });
+document.addEventListener('touchstart', e => {
+  if (e.target === canvas) e.preventDefault();
+  doJump();
+}, { passive: false });
+</script>
+</body>
+</html>
