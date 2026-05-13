@@ -1,61 +1,64 @@
-
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
-*{box-sizing:border-box;margin:0;padding:0}
-#gw{background:#1a1a2e;border-radius:12px;padding:16px;font-family:'Press Start 2P',monospace;user-select:none}
-#hud{display:flex;justify-content:space-between;margin-bottom:10px;padding:0 4px}
-#hud span{font-size:9px}
-#sl{color:#f0e68c}#bl{color:#7ec8e3}#ll{color:#ff6b6b}
-#cw{position:relative;display:flex;justify-content:center}
-canvas{display:block;image-rendering:pixelated;border:2px solid #333;border-radius:4px}
-#ov{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;background:rgba(10,10,30,0.9);border-radius:4px}
-#ov h1{color:#f0e68c;font-size:12px;text-align:center;line-height:1.9}
-#ov p{color:#aaa;font-size:7px;text-align:center;line-height:2.2}
-#ov button{background:#f0e68c;color:#1a1a2e;border:none;padding:10px 22px;font-family:'Press Start 2P',monospace;font-size:9px;cursor:pointer;border-radius:2px}
-#hint{color:#f0e68c;font-size:7px;text-align:center;margin-top:8px;opacity:.6;line-height:2}
+body, html { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #0a0a1a; }
+#gw { position: relative; width: 100vw; height: 100vh; font-family: 'Press Start 2P', monospace; user-select: none; }
+#hud { position: absolute; top: 20px; left: 0; width: 100%; display: flex; justify-content: space-around; z-index: 10; pointer-events: none; }
+#hud span { font-size: 12px; text-shadow: 2px 2px #000; }
+#sl { color: #f0e68c; } #bl { color: #7ec8e3; } #ll { color: #ff6b6b; }
+canvas { display: block; image-rendering: pixelated; width: 100%; height: 100%; }
+#ov { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 20px; background: rgba(10, 10, 30, 0.85); z-index: 20; }
+#ov h1 { color: #f0e68c; font-size: 24px; text-align: center; line-height: 1.5; }
+#ov p { color: #aaa; font-size: 10px; text-align: center; line-height: 2; }
+#ov button { background: #f0e68c; color: #1a1a2e; border: none; padding: 15px 30px; font-family: 'Press Start 2P', monospace; font-size: 14px; cursor: pointer; border-radius: 4px; }
+#hint { position: absolute; bottom: 20px; width: 100%; color: #f0e68c; font-size: 10px; text-align: center; opacity: .6; z-index: 10; }
 </style>
+
 <div id="gw">
   <div id="hud">
     <span id="sl">SCORE: 0</span>
     <span id="bl">BEST: 0</span>
     <span id="ll">❤❤❤</span>
   </div>
-  <div id="cw">
-    <canvas id="c" width="320" height="460"></canvas>
-    <div id="ov">
-      <h1>⬛ TOWER<br>JUMPER ⬛</h1>
-      <p>Sautez sur le bloc qui vole<br>pour faire grandir votre tour !<br>3 vies — bonne chance !</p>
-      <button id="sb">► JOUER</button>
-    </div>
+  <canvas id="c"></canvas>
+  <div id="ov">
+    <h1>⬛ TOWER<br>JUMPER ⬛</h1>
+    <p>Sautez sur le bloc qui vole<br>pour faire grandir votre tour !<br>3 vies — bonne chance !</p>
+    <button id="sb">► JOUER</button>
   </div>
   <div id="hint">ESPACE / CLIC / TAP pour sauter</div>
 </div>
+
 <script>
 const cv=document.getElementById('c'),ctx=cv.getContext('2d');
-const W=320,H=460,BW=52,BH=16,GRAV=0.52,JUMP=-11;
+let W, H; 
+const BW=52, BH=16, GRAV=0.52, JUMP=-11;
 const COLS=['#e74c3c','#e67e22','#f1c40f','#2ecc71','#1abc9c','#3498db','#9b59b6','#e91e63','#00bcd4','#8bc34a'];
 const SHADE={'#e74c3c':'#7b241c','#e67e22':'#784212','#f1c40f':'#7d6608','#2ecc71':'#1e8449','#1abc9c':'#148f77','#3498db':'#1a5276','#9b59b6':'#6c3483','#e91e63':'#78033a','#00bcd4':'#00838f','#8bc34a':'#33691e'};
 
-let state='idle',score=0,best=0,lives=3;
-let tower=[],fb=null,pl=null,stars=[];
-let camY=0;
-let jq=false;
+let state='idle',score=0,best=0,lives=3,tower=[],fb=null,pl=null,stars=[],camY=0,jq=false;
+
+function resize() {
+    W = window.innerWidth;
+    H = window.innerHeight;
+    cv.width = W;
+    cv.height = H;
+    genStars();
+}
 
 const r=(a,b)=>Math.random()*(b-a)+a;
 const ri=(a,b)=>Math.floor(r(a,b+1));
 
-function genStars(){stars=[];for(let i=0;i<50;i++)stars.push({x:r(0,W),y:r(-2000,200),s:r(0.5,1.5),p:r(0,Math.PI*2)});}
-
+function genStars(){stars=[];for(let i=0;i<80;i++)stars.push({x:r(0,W),y:r(-5000,H),s:r(0.5,2),p:r(0,Math.PI*2)});}
 function col(){return COLS[ri(0,COLS.length-1)];}
 
 function newFB(worldY){
-  const spd=Math.min(2.4+score*0.09,7);
-  return{x:0,y:worldY,w:BW,h:BH,c:col(),spd,dir:1};
+  const spd=Math.min(2.5+score*0.1, 8);
+  return{x:0, y:worldY-BH, w:BW, h:BH, c:col(), spd, dir:1};
 }
 
 function startGame(){
   score=0;lives=3;jq=false;tower=[];
-  const BASE=200;
+  const BASE=H*0.8;
   for(let i=0;i<4;i++)tower.push({x:W/2-BW/2,y:BASE-i*BH,w:BW,h:BH,c:COLS[3]});
   const top=tower[tower.length-1];
   pl={x:top.x+BW/2-6,y:top.y-22,w:12,h:22,vy:0,grnd:true,cd:0,c:'#f0e68c'};
@@ -81,7 +84,6 @@ function worldToScreen(worldY){return worldY-camY;}
 
 function update(){
   if(state!=='play')return;
-
   fb.x+=fb.spd*fb.dir;
   if(fb.x+fb.w>=W){fb.dir=-1;fb.x=W-fb.w;}
   if(fb.x<=0){fb.dir=1;fb.x=0;}
@@ -89,10 +91,7 @@ function update(){
   if(!pl.grnd){
     pl.vy+=GRAV;
     pl.y+=pl.vy;
-
-    const pBot=pl.y+pl.h;
-    const pBotPrev=pBot-pl.vy;
-    const cx=pl.x+pl.w/2;
+    const pBot=pl.y+pl.h, pBotPrev=pBot-pl.vy, cx=pl.x+pl.w/2;
 
     if(pl.vy>0&&pBotPrev<=fb.y&&pBot>=fb.y&&cx>=fb.x&&cx<=fb.x+fb.w){
       landOnFB();return;
@@ -101,13 +100,13 @@ function update(){
     if(pl.vy>0&&pBotPrev<=top.y&&pBot>=top.y&&cx>=top.x&&cx<=top.x+top.w){
       pl.y=top.y-pl.h;pl.vy=0;pl.grnd=true;pl.cd=10;return;
     }
-    if(worldToScreen(pl.y)>H+80){miss();return;}
+    if(worldToScreen(pl.y)>H+100){miss();return;}
   }else{
     pl.cd--;
     if(jq&&pl.cd<=0){pl.vy=JUMP;pl.grnd=false;jq=false;}
+    // Le joueur suit le bloc s'il est posé sur la tour (optionnel)
   }
-
-  const targetCam=pl.y-(H*0.55);
+  const targetCam=pl.y-(H*0.6);
   camY+=(targetCam-camY)*0.1;
 }
 
@@ -141,16 +140,14 @@ function drawBlock(wx,wy,w,h,c){
   if(sy>H+h||sy+h<-h)return;
   ctx.fillStyle=c;ctx.fillRect(wx,sy,w,h);
   ctx.fillStyle=SHADE[c]||'#333';ctx.fillRect(wx,sy+h-4,w,4);
-  ctx.fillStyle='rgba(255,255,255,0.25)';ctx.fillRect(wx,sy,w,3);ctx.fillRect(wx,sy,2,h);
+  ctx.fillStyle='rgba(255,255,255,0.25)';ctx.fillRect(wx,sy,w,3);
 }
 
 function drawFB(){
   const sy=worldToScreen(fb.y);
   ctx.fillStyle=fb.c;ctx.fillRect(fb.x,sy,fb.w,fb.h);
   ctx.fillStyle=SHADE[fb.c]||'#333';ctx.fillRect(fb.x,sy+fb.h-4,fb.w,4);
-  ctx.fillStyle='rgba(255,255,255,0.25)';ctx.fillRect(fb.x,sy,fb.w,3);ctx.fillRect(fb.x,sy,2,fb.h);
-  ctx.fillStyle='rgba(255,255,255,0.12)';
-  for(let i=0;i<fb.w;i+=7)ctx.fillRect(fb.x+i,sy,2,fb.h);
+  ctx.fillStyle='rgba(255,255,255,0.3)';ctx.fillRect(fb.x,sy,fb.w,2);
 }
 
 function drawChar(){
@@ -165,29 +162,24 @@ function drawChar(){
 function draw(){
   ctx.fillStyle='#0a0a1a';ctx.fillRect(0,0,W,H);
   stars.forEach(s=>{
-    s.p+=0.015;
-    const a=0.3+0.25*Math.sin(s.p);
+    s.p+=0.01;
+    const a=0.2+0.3*Math.sin(s.p);
     ctx.fillStyle=`rgba(255,255,255,${a.toFixed(2)})`;
     const sy=worldToScreen(s.y);
-    if(sy>-2&&sy<H)ctx.fillRect(s.x,sy,s.s*2,s.s*2);
+    if(sy>-10&&sy<H+10)ctx.fillRect(s.x,sy,s.s,s.s);
   });
   tower.forEach(b=>drawBlock(b.x,b.y,b.w,b.h,b.c));
   if(fb)drawFB();
   if(pl)drawChar();
-  if(state==='play'){
-    const sy=worldToScreen(fb.y);
-    ctx.strokeStyle='rgba(255,255,255,0.12)';
-    ctx.setLineDash([4,6]);ctx.lineWidth=1;
-    ctx.beginPath();ctx.moveTo(pl.x+pl.w/2,worldToScreen(pl.y)+pl.h);ctx.lineTo(pl.x+pl.w/2,sy);ctx.stroke();
-    ctx.setLineDash([]);
-  }
 }
 
 function loop(){update();draw();requestAnimationFrame(loop);}
 
-genStars();loop();
+window.addEventListener('resize', resize);
+resize();
+loop();
+
 document.getElementById('sb').addEventListener('click',startGame);
 window.addEventListener('keydown',e=>{if(e.code==='Space'||e.code==='ArrowUp'){e.preventDefault();jump();}});
 cv.addEventListener('pointerdown',e=>{e.preventDefault();jump();});
-document.addEventListener('touchstart',e=>{if(e.target===cv)e.preventDefault();jump();},{passive:false});
 </script>
